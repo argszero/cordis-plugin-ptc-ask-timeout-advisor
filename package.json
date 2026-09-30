@@ -1,0 +1,81 @@
+{
+  "name": "@argszero/cordis-plugin-ptc-ask-timeout-advisor",
+  "description": "Tells a PTC program's next request what its own deadline hid: that the human question it was waiting on was aborted, not answered. Discussion #8368: in PTC mode the model can only call `run_code`, and a program that asks through `tools.ask_user_question(...)` spends the program's wall-clock budget on the human wait \u2014 the runtime documents `timeoutMs` (default 120000 ms, capped by `maxTimeoutMs` at 600000) as \"Default elapsed deadline, including nested tool and approval waits\". When it expires, the nested call settles `UserQuestionError`/`ASK_ABORTED` and `run_code` reports `code run failed (timeout): execution deadline reached (120000ms)`, so the model sees a program failure and nothing that says the question is still unanswered \u2014 it steps forward as if the deadline were consent, where the ask tool's own contract says \"A timeout is never approval\". This plugin wraps the public `tools/execute` waterfall \u2014 the one seam that sees the nested sub-dispatches a program makes, because they run through the same registry pipeline \u2014 keeps an aborted ask against its call tree (`rootCallId`), and when that tree's program settles as a deadline cut, attaches one user-role advisory to the program's own result: the question was aborted rather than answered, do not perform the action it was gating, ask it again as a direct tool call outside the program (its own measured control waited over four minutes), and otherwise stop. Every gate fails toward silence: only a configured program, only a code-and-wording deadline failure, only an ask tool, only an abort code, and the record is taken rather than read so a tree cannot be advised twice.",
+  "version": "0.1.0",
+  "type": "module",
+  "main": "lib/index.js",
+  "types": "lib/types/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./lib/types/index.d.ts",
+      "default": "./lib/index.js"
+    },
+    "./src/*": "./src/*",
+    "./package.json": "./package.json"
+  },
+  "files": [
+    "lib/**/*.js",
+    "lib/types/**/*.d.ts",
+    "cordis.patch.yml",
+    "README.md",
+    "LICENSE"
+  ],
+  "license": "MIT",
+  "publishConfig": {
+    "access": "public"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/argszero/cordis-plugin-ptc-ask-timeout-advisor.git"
+  },
+  "homepage": "https://github.com/argszero/cordis-plugin-ptc-ask-timeout-advisor#readme",
+  "bugs": {
+    "url": "https://github.com/argszero/cordis-plugin-ptc-ask-timeout-advisor/issues"
+  },
+  "keywords": [
+    "cordis",
+    "deepseek-harness",
+    "dsh",
+    "plugin",
+    "ptc",
+    "run_code",
+    "ask_user_question",
+    "timeout",
+    "deadline",
+    "approval",
+    "guard"
+  ],
+  "dsh": {
+    "bundle": {
+      "patch": "./cordis.patch.yml"
+    }
+  },
+  "peerDependencies": {
+    "@deepseek-ai/cordis": "^4.0.2",
+    "@deepseek-ai/dsh-llm": ">=0.1.7-alpha.1 <0.2.0 || >=0.2.0-rc.1 <0.3.0",
+    "@deepseek-ai/dsh-tools": ">=0.1.7-alpha.1 <0.2.0 || >=0.2.0-rc.1 <0.3.0"
+  },
+  "devDependencies": {
+    "@deepseek-ai/cordis": "^4.0.2",
+    "@deepseek-ai/dsh-llm": "0.2.0-rc.2",
+    "@deepseek-ai/dsh-ptc-runtime": "0.2.0-rc.2",
+    "@deepseek-ai/dsh-ptc-runtime-node": "0.2.0-rc.2",
+    "@deepseek-ai/dsh-system-prompt": "0.2.0-rc.2",
+    "@deepseek-ai/dsh-tools": "0.2.0-rc.2",
+    "@deepseek-ai/dsh-user-questions": "0.2.0-rc.2",
+    "@types/node": "^22.10.2",
+    "semver": "^7.6.0",
+    "typescript": "^5.5.0"
+  },
+  "scripts": {
+    "build": "tsc",
+    "pretest": "tsc",
+    "test": "node --test \"test/*.spec.mjs\"",
+    "test:probe-lines": "node scripts/probe-lines.mjs",
+    "test:inject": "node scripts/inject-defects.mjs",
+    "prepublishOnly": "tsc"
+  },
+  "engines": {
+    "node": "^22.19 || >=24"
+  }
+}

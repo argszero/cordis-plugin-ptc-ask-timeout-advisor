@@ -1,0 +1,65 @@
+# The @argszero/cordis-plugin-ptc-ask-timeout-advisor bundle patch: mount and go.
+#
+# Discussion #8368 (sueccku) reports one sentence that is missing from a PTC
+# session, and the cost of its absence. In PTC mode the model can only call
+# `run_code`; a program that needs a human decision asks through the generated
+# SDK (`await tools.ask_user_question({...})`). The program runs under a
+# wall-clock deadline — `dsh-ptc-runtime-node`'s `timeoutMs`, default 120 000 ms,
+# capped by `maxTimeoutMs` at 600 000 — and the runtime documents that deadline
+# as covering everything the program does, "including nested tool and approval
+# waits". Waiting for a person therefore spends the program's budget.
+#
+# When the budget expires while the question is still open, two things settle,
+# in this order:
+#
+#   1. the run's abort reaches the nested call, which settles as
+#      `UserQuestionError` / `ASK_ABORTED` — "ask_user_question was aborted
+#      before the user answered";
+#   2. `run_code` itself comes back as `CODE_RUN_FAILED` with
+#      "code run failed (timeout): execution deadline reached (120000ms)".
+#
+# The model reads only the second. Its text says "a program failed", which is
+# indistinguishable from a program that crashed, and says nothing about the
+# question — so the deadline reads as an outcome the model can proceed past.
+# The ask tool's own contract says the opposite in so many words ("A timeout is
+# never approval"), and the report measured the control that separates the two:
+# the same question asked as a model-direct tool call waited over four minutes
+# for a real answer.
+#
+# This plugin does not stop the deadline, restore the program, or answer the
+# question. It wraps the public `tools/execute` waterfall — the one seam that
+# sees a program's nested sub-dispatches, because they run through the same
+# registry pipeline as model-direct calls — keeps an aborted ask against its call
+# tree (`rootCallId`), and when that tree's program settles as a deadline cut,
+# attaches ONE user-role advisory to the program's own result through
+# `deferContext`, so it reaches the model immediately after the `tool/result`:
+#
+#   - the question is ABORTED, not answered and not skipped: no answer exists,
+#     and a deadline is a limit on runtime, never an approval;
+#   - do not carry out the action the question was gating;
+#   - ask it again as a direct `ask_user_question` call, outside the program,
+#     where no deadline is running — the reporter's own measured control;
+#   - if the work cannot continue without the answer, stop and hand it over.
+#
+# Every gate fails toward silence: only a configured program name, only a
+# failure whose code is `CODE_RUN_FAILED` AND whose message names the deadline,
+# only a configured ask tool, and only a configured abort code. A program that
+# failed with its own exception, a timeout of the runtime's own, a question the
+# user answered inside the budget, a question that ended as `ASK_TIMED_OUT` (a
+# different outcome, whose answer channel stays open), and a non-program call
+# that merely fails with the same code and wording all produce nothing. The
+# record is *taken*, never read, so a second program in the same call tree cannot
+# be advised about a question it never asked.
+#
+# Start with mode='warn' to see how often your own traffic matches before letting
+# it change what the model reads:
+#
+#   config:
+#     mode: warn
+#
+# See the README for what the plugin refuses, the honest boundary of a stopgap,
+# and how the shipped wording it matches is pinned against the published bundles.
+
+- insert:
+    - id: ptc-ask-timeout-advisor
+      name: '@argszero/cordis-plugin-ptc-ask-timeout-advisor'
